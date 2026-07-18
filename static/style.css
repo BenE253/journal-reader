@@ -1,7 +1,11 @@
 /* PaperShelf styles.
    Mobile-first: everything is designed for a ~390px iPhone screen, with
    max-widths so it also looks sane on a desktop browser.
-   Dark mode follows the system setting via CSS variables. */
+
+   Theming: light is the default palette. Dark applies either when the
+   device is in dark mode (media query) or when the user forces dark with
+   the in-app toggle, which sets data-theme on <html> (see theme.js).
+   Forcing light with the toggle wins over the device setting. */
 
 :root {
   --bg: #faf9f6;
@@ -17,8 +21,24 @@
   --badge-read: #6e6e73;
 }
 
+/* Dark palette, used by both selectors below.
+   NOTE: keep these two blocks identical when changing colors. */
+:root[data-theme="dark"] {
+  --bg: #121212;
+  --surface: #1e1e1e;
+  --text: #e8e8e8;
+  --text-muted: #9a9a9f;
+  --accent: #4fae94;
+  --accent-contrast: #0c1f1a;
+  --border: #2e2e2e;
+  --danger: #e46962;
+  --badge-unread: #d3b24a;
+  --badge-reading: #4fae94;
+  --badge-read: #9a9a9f;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #121212;
     --surface: #1e1e1e;
     --text: #e8e8e8;
