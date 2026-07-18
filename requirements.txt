@@ -1,0 +1,25 @@
+# Web framework and server
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# Database
+sqlalchemy>=2.0
+
+# Templates and form parsing
+jinja2>=3.1
+python-multipart>=0.0.9
+
+# PDF -> Markdown/HTML conversion (heavy: pulls in PyTorch and ML models)
+marker-pdf>=1.2
+
+# Markdown -> HTML rendering of Marker's output
+markdown>=3.6
+
+# HTML post-processing (table wrappers, figure srcs, references section)
+beautifulsoup4>=4.12
+
+# Lightweight PDF text extraction for DOI detection (much faster than Marker)
+pypdf>=4.0
+
+# HTTP client for the Crossref metadata API
+httpx>=0.27

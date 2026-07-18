@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Add PDF — PaperShelf{% endblock %}
+
+{% block content %}
+<header class="app-header">
+  <a class="btn btn-quiet" href="/">← Library</a>
+  <h1>Add a paper</h1>
+</header>
+
+<main class="upload-page">
+  <form method="post" action="/upload" enctype="multipart/form-data" class="upload-form">
+    <label class="upload-drop">
+      <input type="file" name="file" accept="application/pdf,.pdf" required>
+      <span>Tap to choose a PDF</span>
+    </label>
+    <button class="btn btn-primary" type="submit">Upload &amp; convert</button>
+  </form>
+  <p class="hint">
+    Conversion runs in the background — the paper appears in the library
+    with a spinner and becomes readable when it finishes. Metadata is
+    looked up automatically from the paper's DOI when one can be found.
+  </p>
+</main>
+{% endblock %}

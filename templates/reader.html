@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ paper.title }} — PaperShelf{% endblock %}
+{% block bodyclass %}reader-body{% endblock %}
+
+{% block content %}
+<header class="reader-header">
+  <a class="icon-btn" href="/" aria-label="Back to library">←</a>
+  <span class="reader-title">{{ paper.title }}</span>
+  <button class="icon-btn" id="menu-btn" aria-label="Menu">⋯</button>
+</header>
+
+{# Overflow menu: hidden until the ⋯ button is tapped #}
+<div class="menu-sheet" id="menu-sheet" hidden>
+  <a href="/paper/{{ paper.id }}/edit">Edit metadata &amp; tags</a>
+  <a href="/paper/{{ paper.id }}/pdf" target="_blank">Open original PDF</a>
+  <form method="post" action="/paper/{{ paper.id }}/status">
+    {% if paper.status == "read" %}
+      <input type="hidden" name="status" value="reading">
+      <button type="submit">Mark as unfinished</button>
+    {% else %}
+      <input type="hidden" name="status" value="read">
+      <button type="submit">Mark as read</button>
+    {% endif %}
+  </form>
+</div>
+
+<main class="reader-content" id="reader-content" data-paper-id="{{ paper.id }}"
+      data-progress="{{ paper.progress }}">
+  {% if content %}
+    {{ content|safe }}
+  {% elif paper.conversion_status in ("pending", "processing") %}
+    <div class="reader-placeholder">
+      <span class="spinner spinner-large"></span>
+      <p>Converting this paper for reading…</p>
+      <p class="hint">This can take a few minutes. You can go back to the
+        library — it will finish in the background.</p>
+    </div>
+  {% else %}
+    <div class="reader-placeholder">
+      <p>This paper hasn't been converted yet.</p>
+      {% if paper.conversion_error %}<p class="error-text">{{ paper.conversion_error }}</p>{% endif %}
+      <form method="post" action="/paper/{{ paper.id }}/retry">
+        <button class="btn btn-primary" type="submit">Convert now</button>
+      </form>
+      <p><a href="/paper/{{ paper.id }}/pdf">Open the original PDF instead</a></p>
+    </div>
+  {% endif %}
+</main>
+
+{# Full-screen figure lightbox, populated by reader.js on image tap #}
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lightbox-close" id="lightbox-close" aria-label="Close">✕</button>
+  <div class="lightbox-pan" id="lightbox-pan"><img id="lightbox-img" alt=""></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/reader.js"></script>
+{% endblock %}

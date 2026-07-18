@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Edit — {{ paper.title }}{% endblock %}
+
+{% block content %}
+<header class="app-header">
+  <a class="btn btn-quiet" href="/">← Library</a>
+  <h1>Edit paper</h1>
+</header>
+
+<main class="edit-page">
+  <form method="post" action="/paper/{{ paper.id }}/edit" class="edit-form">
+    <label>Title
+      <textarea name="title" rows="3" required>{{ paper.title }}</textarea>
+    </label>
+    <label>Authors
+      <input type="text" name="authors" value="{{ paper.authors or '' }}"
+             placeholder="Smith J, et al.">
+    </label>
+    <label>Journal
+      <input type="text" name="journal" value="{{ paper.journal or '' }}">
+    </label>
+    <label>Year
+      <input type="number" name="year" value="{{ paper.year or '' }}" min="1800" max="2100">
+    </label>
+    <label>DOI
+      <input type="text" name="doi" value="{{ paper.doi or '' }}" placeholder="10.xxxx/…">
+    </label>
+    <label>Status
+      <select name="status">
+        {% for s in ["unread", "reading", "read"] %}
+        <option value="{{ s }}" {{ "selected" if paper.status == s }}>{{ s|capitalize }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Tags <span class="hint">(comma-separated, e.g. eoe, achalasia)</span>
+      <input type="text" name="tags" value="{{ tag_string }}">
+    </label>
+    <button class="btn btn-primary" type="submit">Save</button>
+  </form>
+
+  <form method="post" action="/paper/{{ paper.id }}/delete" class="danger-zone"
+        onsubmit="return confirm('Delete this paper, its PDF, and all highlights?');">
+    <button class="btn btn-danger" type="submit">Delete paper</button>
+  </form>
+</main>
+{% endblock %}

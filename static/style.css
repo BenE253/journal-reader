@@ -1,0 +1,392 @@
+/* PaperShelf styles.
+   Mobile-first: everything is designed for a ~390px iPhone screen, with
+   max-widths so it also looks sane on a desktop browser.
+   Dark mode follows the system setting via CSS variables. */
+
+:root {
+  --bg: #faf9f6;
+  --surface: #ffffff;
+  --text: #1c1c1e;
+  --text-muted: #6e6e73;
+  --accent: #1f6f5c;
+  --accent-contrast: #ffffff;
+  --border: #e3e2de;
+  --danger: #b3261e;
+  --badge-unread: #8a6d1a;
+  --badge-reading: #1f6f5c;
+  --badge-read: #6e6e73;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121212;
+    --surface: #1e1e1e;
+    --text: #e8e8e8;
+    --text-muted: #9a9a9f;
+    --accent: #4fae94;
+    --accent-contrast: #0c1f1a;
+    --border: #2e2e2e;
+    --danger: #e46962;
+    --badge-unread: #d3b24a;
+    --badge-reading: #4fae94;
+    --badge-read: #9a9a9f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Respect the iPhone home indicator / notch. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+a { color: var(--accent); }
+
+/* ---------- Shared header / buttons ---------- */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  padding-top: calc(14px + env(safe-area-inset-top));
+}
+
+.app-header h1 { font-size: 1.3rem; margin: 0; flex: 1; }
+
+.btn {
+  display: inline-block;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 600; }
+.btn-small { padding: 6px 12px; font-size: 0.85rem; }
+.btn-quiet { border-color: transparent; background: transparent; color: var(--accent); }
+.btn-danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+
+/* ---------- Library ---------- */
+
+.library { padding: 0 16px 32px; max-width: 640px; margin: 0 auto; }
+
+.search-bar input {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.filter-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;          /* chips scroll sideways rather than wrap forever */
+  padding: 10px 0 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chip {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.chip-active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+
+.empty-state { color: var(--text-muted); text-align: center; padding: 48px 0; }
+
+.card-list { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.card-link { display: block; padding: 14px 16px 10px; color: inherit; text-decoration: none; }
+
+.card-title { font-size: 1.02rem; line-height: 1.35; margin: 0 0 6px; font-weight: 600; }
+
+.card-meta { margin: 0 0 8px; font-size: 0.85rem; color: var(--text-muted); }
+
+.card-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.badge {
+  font-size: 0.72rem;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  text-transform: lowercase;
+}
+
+.badge-unread  { color: var(--badge-unread);  border-color: currentColor; }
+.badge-reading { color: var(--badge-reading); border-color: currentColor; }
+.badge-read    { color: var(--badge-read); }
+.badge-failed  { color: var(--danger); border-color: currentColor; }
+.badge-tag     { color: var(--accent); }
+
+.progress-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  margin-top: 10px;
+}
+
+.progress-fill { height: 100%; border-radius: 2px; background: var(--accent); }
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px 12px;
+}
+
+.error-text { color: var(--danger); font-size: 0.82rem; margin: 4px 0; }
+
+.spinner {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+  vertical-align: -0.1em;
+}
+
+.spinner-large { width: 2rem; height: 2rem; border-width: 3px; color: var(--accent); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Upload & edit forms ---------- */
+
+.upload-page, .edit-page { padding: 16px; max-width: 640px; margin: 0 auto; }
+
+.upload-form { display: flex; flex-direction: column; gap: 16px; }
+
+.upload-drop {
+  display: block;
+  border: 2px dashed var(--border);
+  border-radius: 14px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.upload-drop input[type="file"] { display: block; margin: 0 auto 10px; }
+
+.hint { color: var(--text-muted); font-size: 0.85rem; }
+
+.edit-form { display: flex; flex-direction: column; gap: 14px; }
+
+.edit-form label { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; color: var(--text-muted); }
+
+.edit-form input, .edit-form textarea, .edit-form select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.danger-zone { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 16px; }
+
+/* ---------- Reader ---------- */
+
+.reader-body { background: var(--bg); }
+
+.reader-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.reader-title {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon-btn {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 8px 10px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menu-sheet {
+  position: fixed;
+  top: calc(52px + env(safe-area-inset-top));
+  right: 10px;
+  z-index: 20;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  min-width: 220px;
+  overflow: hidden;
+}
+
+.menu-sheet a, .menu-sheet button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 13px 16px;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menu-sheet form { margin: 0; }
+.menu-sheet a:last-child, .menu-sheet form:last-child button { border-bottom: none; }
+
+/* The article itself: the whole point of the app.
+   17.5px base, tall line height, single narrow column. */
+.reader-content {
+  font-size: 17.5px;
+  line-height: 1.6;
+  max-width: 65ch;
+  margin: 0 auto;
+  padding: 20px 18px 80px;
+  overflow-wrap: break-word;   /* long URLs/DOIs must not force sideways scroll */
+}
+
+.reader-content h1 { font-size: 1.45rem; line-height: 1.3; }
+.reader-content h2 { font-size: 1.2rem; margin-top: 2em; }
+.reader-content h3 { font-size: 1.05rem; margin-top: 1.6em; }
+
+.reader-content p { margin: 0 0 1em; }
+
+.reader-content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.2em auto;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+
+/* Wide tables scroll inside their wrapper — never the page. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1.2em -18px;         /* let tables use the full screen width */
+  padding: 0 18px;
+}
+
+.reader-content table {
+  border-collapse: collapse;
+  font-size: 0.82em;
+  min-width: 100%;
+}
+
+.reader-content th, .reader-content td {
+  border: 1px solid var(--border);
+  padding: 6px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.reader-content th { background: var(--surface); }
+
+details.references {
+  margin-top: 2.5em;
+  border-top: 1px solid var(--border);
+  padding-top: 1em;
+}
+
+details.references summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 8px 0;
+}
+
+details.references li, details.references p { font-size: 0.85em; color: var(--text-muted); }
+
+.reader-placeholder { text-align: center; padding: 80px 16px; color: var(--text-muted); }
+
+/* ---------- Figure lightbox ---------- */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.92);
+}
+
+.lightbox-pan {
+  position: absolute;
+  inset: 0;
+  overflow: auto;               /* panning when zoomed in */
+  display: flex;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lightbox-pan img {
+  margin: auto;                 /* centered while it fits on screen */
+  max-width: 100%;
+  max-height: 100%;
+  transform-origin: center center;
+  touch-action: none;           /* we handle pinch gestures ourselves */
+}
+
+.lightbox-close {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top));
+  right: 12px;
+  z-index: 101;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border: none;
+  font-size: 1.1rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+}

@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}PaperShelf — Library{% endblock %}
+
+{% block content %}
+<header class="app-header">
+  <h1>PaperShelf</h1>
+  <a class="btn btn-primary" href="/upload">+ Add PDF</a>
+</header>
+
+<main class="library">
+  <form class="search-bar" method="get" action="/">
+    <input type="search" name="q" placeholder="Search titles, authors, figure captions…"
+           value="{{ search_query }}">
+    {# Preserve active filters when searching #}
+    {% if active_status %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
+    {% if active_tag %}<input type="hidden" name="tag" value="{{ active_tag }}">{% endif %}
+  </form>
+
+  <nav class="filter-row">
+    {% set base_q = ("&q=" ~ search_query) if search_query else "" %}
+    <a href="/?{{ 'tag=' ~ active_tag if active_tag }}{{ base_q }}"
+       class="chip {{ 'chip-active' if not active_status }}">All</a>
+    {% for s in ["unread", "reading", "read"] %}
+      <a href="/?status={{ s }}{{ ('&tag=' ~ active_tag) if active_tag }}{{ base_q }}"
+         class="chip {{ 'chip-active' if active_status == s }}">{{ s|capitalize }}</a>
+    {% endfor %}
+  </nav>
+
+  {% if all_tags %}
+  <nav class="filter-row tag-row">
+    {% for t in all_tags %}
+      {% if active_tag == t.name %}
+        <a href="/?{{ ('status=' ~ active_status) if active_status }}{{ base_q }}"
+           class="chip chip-tag chip-active">#{{ t.name }} ✕</a>
+      {% else %}
+        <a href="/?tag={{ t.name }}{{ ('&status=' ~ active_status) if active_status }}{{ base_q }}"
+           class="chip chip-tag">#{{ t.name }}</a>
+      {% endif %}
+    {% endfor %}
+  </nav>
+  {% endif %}
+
+  {% if not papers %}
+    <p class="empty-state">
+      {% if search_query or active_status or active_tag %}
+        No papers match. <a href="/">Clear filters</a>
+      {% else %}
+        Your library is empty. <a href="/upload">Add your first PDF</a>.
+      {% endif %}
+    </p>
+  {% endif %}
+
+  <div class="card-list">
+    {% for paper in papers %}
+    <article class="card" data-paper-id="{{ paper.id }}"
+             data-conversion="{{ paper.conversion_status }}">
+      {% if paper.conversion_status == "done" %}
+        <a class="card-link" href="/paper/{{ paper.id }}">
+      {% else %}
+        <div class="card-link">
+      {% endif %}
+        <h2 class="card-title">{{ paper.title }}</h2>
+        <p class="card-meta">
+          {% if paper.authors %}{{ paper.authors }}{% endif %}
+          {% if paper.journal %} · {{ paper.journal }}{% endif %}
+          {% if paper.year %} · {{ paper.year }}{% endif %}
+        </p>
+        <div class="card-badges">
+          <span class="badge badge-{{ paper.status }}">{{ paper.status }}</span>
+          {% if paper.conversion_status == "pending" %}
+            <span class="badge badge-pending">queued</span>
+          {% elif paper.conversion_status == "processing" %}
+            <span class="badge badge-processing"><span class="spinner"></span> converting…</span>
+          {% elif paper.conversion_status == "failed" %}
+            <span class="badge badge-failed">conversion failed</span>
+          {% endif %}
+          {% for t in paper.tags %}<span class="badge badge-tag">#{{ t.name }}</span>{% endfor %}
+        </div>
+        {% if paper.progress > 0 and paper.status != "read" %}
+        <div class="progress-track"><div class="progress-fill" style="width: {{ (paper.progress * 100)|round }}%"></div></div>
+        {% endif %}
+      {% if paper.conversion_status == "done" %}
+        </a>
+      {% else %}
+        </div>
+      {% endif %}
+
+      {% if paper.conversion_status == "failed" %}
+      <div class="card-actions">
+        <p class="error-text">{{ paper.conversion_error or "Unknown error" }}</p>
+        <form method="post" action="/paper/{{ paper.id }}/retry">
+          <button class="btn btn-small" type="submit">Retry conversion</button>
+        </form>
+      </div>
+      {% endif %}
+      <div class="card-actions">
+        <a class="btn btn-small btn-quiet" href="/paper/{{ paper.id }}/edit">Edit</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// While any paper is queued/converting, poll the server and reload when a
+// status changes so spinners resolve without a manual refresh.
+(function () {
+  const busy = document.querySelectorAll('[data-conversion="pending"], [data-conversion="processing"]');
+  if (busy.length === 0) return;
+
+  const current = {};
+  document.querySelectorAll('[data-paper-id]').forEach(function (el) {
+    current[el.dataset.paperId] = el.dataset.conversion;
+  });
+
+  const timer = setInterval(async function () {
+    try {
+      const res = await fetch('/api/conversion-status');
+      const statuses = await res.json();
+      for (const id in current) {
+        if (statuses[id] && statuses[id] !== current[id]) {
+          clearInterval(timer);
+          location.reload();
+          return;
+        }
+      }
+    } catch (e) { /* server briefly unreachable; keep polling */ }
+  }, 4000);
+})();
+</script>
+{% endblock %}

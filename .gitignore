@@ -1,0 +1,14 @@
+# App data: database, PDFs, converted HTML, figures
+storage/
+
+# Local PDFs waiting to be seeded
+seed/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS noise
+.DS_Store
