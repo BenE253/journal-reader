@@ -52,6 +52,10 @@ Each PDF is imported and converted one at a time, with progress printed to
 the terminal. Re-running the script skips papers already imported (matched
 by DOI).
 
+> **Hosting it somewhere always-on?** See [DEPLOY.md](DEPLOY.md) for a
+> complete walkthrough of running PaperShelf for free on Oracle Cloud's
+> Always Free tier, reachable from your phone anywhere via Tailscale.
+
 ## Reading from your iPhone (Tailscale)
 
 1. Install [Tailscale](https://tailscale.com) on the machine running
