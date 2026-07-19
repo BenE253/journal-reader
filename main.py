@@ -261,6 +261,21 @@ def retry_conversion(
     return RedirectResponse(url="/", status_code=303)
 
 
+@app.post("/paper/{paper_id}/reconvert")
+def reconvert(
+    paper_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
+):
+    """Re-run conversion on an already-converted paper (e.g. to pick up
+    improved text cleanup). Highlights survive: they re-anchor by text on
+    the reader, so as long as the wording is stable they reattach."""
+    paper = db.get(Paper, paper_id)
+    if paper is not None and paper.conversion_status != "processing":
+        paper.conversion_status = "pending"
+        db.commit()
+        background_tasks.add_task(convert_paper, paper.id)
+    return RedirectResponse(url=f"/paper/{paper_id}", status_code=303)
+
+
 @app.post("/paper/{paper_id}/status")
 def set_status(paper_id: int, status: str = Form(...), db: Session = Depends(get_db)):
     """Manual status change from the reader overflow menu / edit page."""

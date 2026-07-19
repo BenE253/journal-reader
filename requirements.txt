@@ -18,6 +18,9 @@ markdown>=3.6
 # HTML post-processing (table wrappers, figure srcs, references section)
 beautifulsoup4>=4.12
 
+# Repairs garbled Unicode (mojibake) from PDF text extraction
+ftfy>=6.0
+
 # Lightweight PDF text extraction for DOI detection (much faster than Marker)
 pypdf>=4.0
 

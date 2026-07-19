@@ -22,6 +22,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+import ftfy
 import markdown as md
 from bs4 import BeautifulSoup
 
@@ -85,6 +86,9 @@ def _run_pipeline(db, paper: Paper) -> None:
     rendered = converter(paper.pdf_path)
     # text: the Markdown string; images: {filename: PIL.Image}
     text, _format, images = text_from_rendered(rendered)
+    # Repair symbol-font damage (garbled µg, α, β, ± …) before anything
+    # downstream — captions and HTML both come from this string.
+    text = _clean_text(text)
 
     figure_dir = FIGURE_DIR / str(paper.id)
     figure_dir.mkdir(parents=True, exist_ok=True)
@@ -118,6 +122,80 @@ def _run_pipeline(db, paper: Paper) -> None:
         paper.title = marker_title
 
     db.commit()
+
+
+# --------------------------------------------------------------------------
+# Text cleanup (garbled Greek letters & symbols)
+# --------------------------------------------------------------------------
+
+# Journal PDFs frequently set Greek letters and math symbols in "symbol"
+# fonts. When such a font lacks a proper Unicode mapping, extraction
+# yields characters from the Private Use Area (U+F0xx), which browsers
+# draw as empty boxes. The PUA code equals the character's slot in
+# Adobe's classic Symbol font, so the intended character is recoverable:
+SYMBOL_FONT_MAP = str.maketrans({
+    # lowercase greek (Symbol-font slot = Latin letter position)
+    "\uf061": "α",
+    "\uf062": "β",
+    "\uf063": "χ",
+    "\uf064": "δ",
+    "\uf065": "ε",
+    "\uf066": "φ",
+    "\uf067": "γ",
+    "\uf068": "η",
+    "\uf069": "ι",
+    "\uf06b": "κ",
+    "\uf06c": "λ",
+    "\uf06d": "μ",
+    "\uf06e": "ν",
+    "\uf070": "π",
+    "\uf071": "θ",
+    "\uf072": "ρ",
+    "\uf073": "σ",
+    "\uf074": "τ",
+    "\uf075": "υ",
+    "\uf077": "ω",
+    "\uf078": "ξ",
+    "\uf079": "ψ",
+    "\uf07a": "ζ",
+    # uppercase greek
+    "\uf044": "Δ",
+    "\uf046": "Φ",
+    "\uf047": "Γ",
+    "\uf04c": "Λ",
+    "\uf050": "Π",
+    "\uf051": "Θ",
+    "\uf053": "Σ",
+    "\uf057": "Ω",
+    "\uf058": "Ξ",
+    "\uf059": "Ψ",
+    # common math/units symbols
+    "\uf0b0": "°",
+    "\uf0b1": "±",
+    "\uf0b3": "≥",
+    "\uf0a3": "≤",
+    "\uf0b9": "≠",
+    "\uf0bb": "≈",
+    "\uf0b4": "×",
+    "\uf0b8": "÷",
+    "\uf0ae": "→",
+    "\uf0ac": "←",
+})
+
+
+def _clean_text(text: str) -> str:
+    """Fix the two common ways Greek/symbols get garbled in extraction.
+
+    1. Mojibake — UTF-8 read with the wrong encoding somewhere upstream,
+       e.g. "Î¼g" instead of "µg". ftfy detects and reverses this.
+    2. Symbol-font private-use codes (the empty-box characters) — mapped
+       back to the intended Greek letter or symbol via the table above.
+
+    (A third failure mode — the PDF genuinely containing a wrong letter,
+    like "lg" for "µg" — is invisible to us and can't be fixed here.)
+    """
+    text = ftfy.fix_text(text)
+    return text.translate(SYMBOL_FONT_MAP)
 
 
 # --------------------------------------------------------------------------

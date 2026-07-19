@@ -15,6 +15,9 @@
   <a href="/paper/{{ paper.id }}/highlights">Highlights ({{ paper.highlights|length }})</a>
   <a href="/paper/{{ paper.id }}/edit">Edit metadata &amp; tags</a>
   <a href="/paper/{{ paper.id }}/pdf" target="_blank">Open original PDF</a>
+  <form method="post" action="/paper/{{ paper.id }}/reconvert">
+    <button type="submit">Re-convert (fix garbled text)</button>
+  </form>
   <form method="post" action="/paper/{{ paper.id }}/status">
     {% if paper.status == "read" %}
       <input type="hidden" name="status" value="reading">
