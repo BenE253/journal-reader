@@ -64,8 +64,19 @@
       loadBtn.disabled = true;
       loadBtn.textContent = "Loading…";
       try {
-        var res = await fetch("/api/zotero/collections");
-        var data = await res.json();
+        var res = await fetch("/api/zotero/collections").catch(function () {
+          // Browser-level failure ("Load failed"): the request never got a
+          // response — server stopped, or the phone lost the Tailscale link.
+          throw new Error("Couldn't reach the PaperShelf server. Is uvicorn "
+            + "still running? (Check the terminal, then reload this page.)");
+        });
+        var data;
+        try {
+          data = await res.json();
+        } catch (e) {
+          throw new Error("Server error (HTTP " + res.status + ") — check the "
+            + "terminal running uvicorn for the full error message.");
+        }
         if (!res.ok) throw new Error(data.error || "Couldn't reach Zotero");
         list.innerHTML = "";
         if (data.length === 0) {

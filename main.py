@@ -477,14 +477,27 @@ def save_zotero_settings(
 
 @app.get("/api/zotero/collections")
 def zotero_collections(db: Session = Depends(get_db)):
-    zot = zotero_sync.get_client(db)
-    if zot is None:
-        return JSONResponse({"error": "Zotero credentials are not configured."}, status_code=400)
+    # Client creation can itself fail (pyzotero not installed, malformed
+    # library ID), so it sits inside the try as well — the page should
+    # always get a readable message, never a bare 500.
     try:
+        zot = zotero_sync.get_client(db)
+        if zot is None:
+            return JSONResponse(
+                {"error": "Zotero credentials are not configured."}, status_code=400
+            )
         return zotero_sync.list_collections(zot)
+    except ModuleNotFoundError:
+        return JSONResponse(
+            {"error": "The pyzotero package is not installed. "
+                      "Run: pip install -r requirements.txt (inside the venv), "
+                      "then restart the server."},
+            status_code=500,
+        )
     except Exception as exc:  # noqa: BLE001 - bad key, network, Zotero down
         return JSONResponse(
-            {"error": f"Couldn't reach Zotero: {exc}"}, status_code=502
+            {"error": f"Couldn't reach Zotero: {type(exc).__name__}: {exc}"},
+            status_code=502,
         )
 
 
