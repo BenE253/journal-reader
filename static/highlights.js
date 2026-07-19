@@ -1,26 +1,31 @@
 /* PaperShelf highlight engine (Phase 2).
 
-   How highlights work:
+   Two ways to create a highlight, chosen by device:
 
-   CREATE  — When you select text, a floating toolbar appears with four
-             color dots and a note button. Choosing one saves the selected
-             text plus ~50 characters of context before and after it
-             (the "prefix"/"suffix") to the server, then wraps the
-             selection in <mark> elements.
+   TOUCH (Kindle-style) — Native text selection is disabled inside the
+       article, which also suppresses iOS's Copy/Look Up menu (that menu
+       cannot be hidden while native selection is active, and it overlaps
+       any toolbar we draw). Instead: long-press a word to start a
+       highlight, drag to extend it in either direction (the pending
+       range is drawn live via the CSS Custom Highlight API, and the page
+       auto-scrolls near the screen edges), then lift your finger — the
+       highlight is saved in your last-used color and a small palette
+       appears for recolor / note / delete.
 
-   ANCHOR  — On page load we fetch the paper's highlights and re-find each
-             one in the article text: first by searching for
-             prefix + text + suffix (robust against duplicate phrases),
-             falling back to the text alone if it's unique. Matches are
-             wrapped in <mark data-hl-id="..."> elements.
+   MOUSE (desktop) — Normal text selection; a floating toolbar with the
+       four color dots and a note button appears near the selection.
+       Desktop has no system callout, so nothing overlaps.
 
-   EDIT    — Tapping an existing highlight reopens the toolbar in edit
-             mode: change color, add/edit a note, or delete.
+   Fallback: a touch device too old for the Custom Highlight API keeps
+   native selection, but the toolbar docks at the bottom of the screen
+   where the iOS menu can't cover it.
 
-   Everything operates on character offsets into the article's combined
-   text content, so highlights can span paragraphs, bold spans, links,
-   etc. — wrapRange() walks the text nodes and wraps each covered piece
-   in its own <mark>. */
+   Storage/anchoring model (both modes): a highlight is the selected text
+   plus ~50 characters of context on each side. On load, each highlight
+   is re-found by searching for prefix+text+suffix (falling back to the
+   bare text if unique) and wrapped in <mark data-hl-id> elements — one
+   per covered text piece, so highlights can span paragraphs. Tapping a
+   mark reopens the palette in edit mode. */
 
 (function () {
   "use strict";
@@ -33,6 +38,20 @@
   var paperId = root.dataset.paperId;
   var COLORS = ["yellow", "green", "blue", "pink"];
   var CONTEXT_CHARS = 50;
+  var COLOR_KEY = "papershelf-hl-color";
+
+  // "Coarse pointer" ≈ finger-first device (phone/tablet).
+  var touchMode = window.matchMedia("(pointer: coarse)").matches;
+  var supportsCustomHighlight =
+    typeof window.Highlight === "function" && typeof CSS !== "undefined" && !!CSS.highlights;
+  var kindleMode = touchMode && supportsCustomHighlight;
+
+  function lastColor() {
+    var c = localStorage.getItem(COLOR_KEY);
+    return COLORS.indexOf(c) !== -1 ? c : "yellow";
+  }
+
+  function rememberColor(c) { localStorage.setItem(COLOR_KEY, c); }
 
   /* ================= text-offset utilities ================= */
 
@@ -52,10 +71,39 @@
     return nodes;
   }
 
-  /* Wrap the characters [start, end) of the article text in <mark>
-     elements. A highlight crossing element boundaries (e.g. spanning a
-     <b> or a paragraph break) gets one <mark> per covered text piece,
-     all sharing the same data-hl-id. */
+  /* Character offset of a (node, offsetInNode) position within the
+     whole article text. */
+  function offsetOf(container, offsetInNode) {
+    var probe = document.createRange();
+    probe.selectNodeContents(root);
+    probe.setEnd(container, offsetInNode);
+    return probe.toString().length;
+  }
+
+  /* Build a live Range covering article characters [start, end). */
+  function rangeFromOffsets(start, end) {
+    var nodes = textNodes();
+    var range = document.createRange();
+    var pos = 0;
+    var startSet = false;
+    for (var i = 0; i < nodes.length; i++) {
+      var len = nodes[i].nodeValue.length;
+      if (!startSet && pos + len > start) {
+        range.setStart(nodes[i], start - pos);
+        startSet = true;
+      }
+      if (startSet && pos + len >= end) {
+        range.setEnd(nodes[i], Math.min(end - pos, len));
+        return range;
+      }
+      pos += len;
+    }
+    return startSet ? range : null;
+  }
+
+  /* Wrap the characters [start, end) in <mark> elements. A highlight
+     crossing element boundaries (spanning a <b>, a paragraph break, …)
+     gets one <mark> per covered text piece, all sharing data-hl-id. */
   function wrapRange(start, end, id, color, hasNote) {
     var nodes = textNodes();
     var pos = 0;
@@ -97,21 +145,20 @@
     });
   }
 
-  /* Re-find a stored highlight in the article text. Returns true if it
-     was anchored, false if the text couldn't be located (e.g. the paper
-     was re-converted and the wording changed). */
+  /* Re-find a stored highlight in the article text. Returns false if the
+     text can't be located (e.g. the paper was re-converted and the
+     wording changed slightly). */
   function anchor(hl) {
     var full = fullText();
     var index = -1;
 
     if (hl.prefix || hl.suffix) {
-      var withContext = hl.prefix + hl.text + hl.suffix;
-      var at = full.indexOf(withContext);
+      var at = full.indexOf(hl.prefix + hl.text + hl.suffix);
       if (at !== -1) index = at + hl.prefix.length;
     }
     if (index === -1) {
-      // Fall back to the bare text — but only if it appears exactly once,
-      // otherwise we might highlight the wrong occurrence.
+      // Bare-text fallback — only if it appears exactly once, otherwise
+      // we might highlight the wrong occurrence.
       var first = full.indexOf(hl.text);
       if (first !== -1 && full.indexOf(hl.text, first + 1) === -1) index = first;
     }
@@ -121,6 +168,39 @@
     return true;
   }
 
+  /* ================= create on the server ================= */
+
+  function createHighlight(start, end, color, options) {
+    options = options || {};
+    var full = fullText();
+    var payload = {
+      text: full.slice(start, end),
+      prefix: full.slice(Math.max(0, start - CONTEXT_CHARS), start),
+      suffix: full.slice(end, end + CONTEXT_CHARS),
+      color: color
+    };
+
+    fetch("/api/paper/" + paperId + "/highlights", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (hl) {
+        wrapRange(start, end, hl.id, hl.color, false);
+        if (options.openNote) {
+          openNoteSheet(hl.id, "");
+        } else if (options.showEditToolbar) {
+          // Kindle flow: highlight is already applied; offer the palette
+          // so a different color / note / undo is one tap away.
+          mode = { kind: "edit", id: String(hl.id) };
+          var rect = rangeFromOffsets(start, end).getBoundingClientRect();
+          showToolbar(rect);
+        }
+      })
+      .catch(function () { alert("Couldn't save highlight — is the server reachable?"); });
+  }
+
   /* ================= floating toolbar ================= */
 
   var toolbar = document.createElement("div");
@@ -128,7 +208,7 @@
   toolbar.hidden = true;
   document.body.appendChild(toolbar);
 
-  // Mode: {kind: "create", range} or {kind: "edit", id}
+  // Mode: {kind: "create", range} (desktop selection) or {kind: "edit", id}
   var mode = null;
 
   function buildToolbar() {
@@ -160,8 +240,9 @@
 
   function showToolbar(rect) {
     buildToolbar();
+    toolbar.classList.remove("hl-toolbar-bottom");
     toolbar.hidden = false;
-    // Position above the selection, or below it when too near the top.
+    // Position above the target, or below it when too near the top.
     var width = toolbar.offsetWidth;
     var left = rect.left + rect.width / 2 - width / 2;
     left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
@@ -171,102 +252,29 @@
     toolbar.style.top = top + "px";
   }
 
+  function showToolbarBottom() {
+    // Fallback placement: docked at the bottom, clear of the iOS callout.
+    buildToolbar();
+    toolbar.classList.add("hl-toolbar-bottom");
+    toolbar.style.left = "";
+    toolbar.style.top = "";
+    toolbar.hidden = false;
+  }
+
   function hideToolbar() {
     toolbar.hidden = true;
     mode = null;
   }
 
-  // Tapping toolbar buttons must not clear the text selection first —
-  // preventing default on pointerdown keeps the selection alive until
-  // the click handler runs.
+  // Tapping toolbar buttons must not clear a text selection first —
+  // preventing default on pointerdown keeps it alive until click runs.
   toolbar.addEventListener("pointerdown", function (e) { e.preventDefault(); });
-
-  /* ================= selection handling (create) ================= */
-
-  var selectionTimer = null;
-  document.addEventListener("selectionchange", function () {
-    clearTimeout(selectionTimer);
-    selectionTimer = setTimeout(onSelectionSettled, 250);
-  });
-
-  function onSelectionSettled() {
-    // Don't fight with an open edit toolbar or note sheet.
-    if (mode && mode.kind === "edit") return;
-    if (!noteSheet.hidden) return;
-
-    var sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-      if (mode && mode.kind === "create") hideToolbar();
-      return;
-    }
-    var range = sel.getRangeAt(0);
-    if (!root.contains(range.commonAncestorContainer)) return;
-    if (!range.toString().trim()) return;
-
-    mode = { kind: "create", range: range.cloneRange() };
-    showToolbar(range.getBoundingClientRect());
-  }
-
-  /* Character offset of a range boundary within the whole article. */
-  function offsetOf(container, offsetInNode) {
-    var probe = document.createRange();
-    probe.selectNodeContents(root);
-    probe.setEnd(container, offsetInNode);
-    return probe.toString().length;
-  }
-
-  function saveSelection(color, thenOpenNote) {
-    var range = mode.range;
-    var text = range.toString();
-    var start = offsetOf(range.startContainer, range.startOffset);
-    var end = start + text.length;
-    var full = fullText();
-
-    var payload = {
-      text: text,
-      prefix: full.slice(Math.max(0, start - CONTEXT_CHARS), start),
-      suffix: full.slice(end, end + CONTEXT_CHARS),
-      color: color
-    };
-
-    fetch("/api/paper/" + paperId + "/highlights", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    })
-      .then(function (res) { return res.json(); })
-      .then(function (hl) {
-        wrapRange(start, end, hl.id, hl.color, false);
-        window.getSelection().removeAllRanges();
-        hideToolbar();
-        if (thenOpenNote) openNoteSheet(hl.id, "");
-      })
-      .catch(function () { alert("Couldn't save highlight — is the server reachable?"); });
-  }
-
-  /* ================= edit mode (tap an existing mark) ================= */
-
-  root.addEventListener("click", function (e) {
-    var mark = e.target.closest && e.target.closest("mark.hl");
-    if (!mark) return;
-    e.preventDefault();
-    e.stopPropagation();
-    mode = { kind: "edit", id: mark.dataset.hlId };
-    showToolbar(mark.getBoundingClientRect());
-  });
-
-  // Tapping outside the toolbar closes edit mode.
-  document.addEventListener("click", function (e) {
-    if (mode && mode.kind === "edit" && !toolbar.contains(e.target)
-        && !(e.target.closest && e.target.closest("mark.hl"))) {
-      hideToolbar();
-    }
-  });
 
   function pickColor(color) {
     if (!mode) return;
+    rememberColor(color);
     if (mode.kind === "create") {
-      saveSelection(color, false);
+      saveDesktopSelection(color, false);
       return;
     }
     // Edit: recolor all this highlight's <mark> pieces, then persist.
@@ -296,6 +304,25 @@
     });
   }
 
+  /* ================= edit mode (tap an existing mark) ================= */
+
+  root.addEventListener("click", function (e) {
+    var mark = e.target.closest && e.target.closest("mark.hl");
+    if (!mark) return;
+    e.preventDefault();
+    e.stopPropagation();
+    mode = { kind: "edit", id: mark.dataset.hlId };
+    showToolbar(mark.getBoundingClientRect());
+  });
+
+  // Tapping outside the toolbar closes edit mode.
+  document.addEventListener("click", function (e) {
+    if (mode && mode.kind === "edit" && !toolbar.contains(e.target)
+        && !(e.target.closest && e.target.closest("mark.hl"))) {
+      hideToolbar();
+    }
+  });
+
   /* ================= note sheet ================= */
 
   var noteSheet = document.createElement("div");
@@ -322,13 +349,13 @@
   function openNoteForCurrent() {
     if (!mode) return;
     if (mode.kind === "create") {
-      // Note button on a fresh selection: save as yellow, then open notes.
-      saveSelection("yellow", true);
+      // Note button on a fresh desktop selection: save first, then note.
+      saveDesktopSelection(lastColor(), true);
       return;
     }
     var id = mode.id;
     hideToolbar();
-    // Fetch the current note text so editing starts from what's saved.
+    // Fetch the saved note text so editing starts from what's stored.
     fetch("/api/paper/" + paperId + "/highlights")
       .then(function (res) { return res.json(); })
       .then(function (highlights) {
@@ -355,6 +382,184 @@
       });
     });
   });
+
+  /* ================= desktop flow: native selection ================= */
+  /* Also used as the fallback on touch devices without the Custom
+     Highlight API — there the toolbar docks at the bottom instead of
+     floating near the selection (where the iOS callout would cover it). */
+
+  if (!kindleMode) {
+    var selectionTimer = null;
+    document.addEventListener("selectionchange", function () {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(onSelectionSettled, 250);
+    });
+  }
+
+  function onSelectionSettled() {
+    if (mode && mode.kind === "edit") return;
+    if (!noteSheet.hidden) return;
+
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      if (mode && mode.kind === "create") hideToolbar();
+      return;
+    }
+    var range = sel.getRangeAt(0);
+    if (!root.contains(range.commonAncestorContainer)) return;
+    if (!range.toString().trim()) return;
+
+    mode = { kind: "create", range: range.cloneRange() };
+    if (touchMode) {
+      showToolbarBottom();
+    } else {
+      showToolbar(range.getBoundingClientRect());
+    }
+  }
+
+  function saveDesktopSelection(color, thenOpenNote) {
+    var range = mode.range;
+    var start = offsetOf(range.startContainer, range.startOffset);
+    var end = start + range.toString().length;
+    window.getSelection().removeAllRanges();
+    hideToolbar();
+    createHighlight(start, end, color, { openNote: thenOpenNote });
+  }
+
+  /* ================= Kindle flow: long-press + drag ================= */
+
+  if (kindleMode) {
+    // Kill native selection inside the article: no iOS callout, no
+    // selection handles — our long-press gesture takes over.
+    root.classList.add("no-native-select");
+
+    var LONG_PRESS_MS = 400;
+    var MOVE_TOLERANCE = 8;   // px of finger drift allowed before it's a scroll
+    var EDGE_ZONE = 70;       // px from screen edge that triggers auto-scroll
+
+    var pressTimer = null;
+    var startX = 0, startY = 0, lastX = 0, lastY = 0;
+    var selecting = false;
+    // Anchor = the word first pressed; selection always contains it.
+    var anchorStart = 0, anchorEnd = 0, selStart = 0, selEnd = 0;
+
+    var caretFromPoint = function (x, y) {
+      if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
+      if (document.caretPositionFromPoint) {           // Firefox
+        var pos = document.caretPositionFromPoint(x, y);
+        if (!pos) return null;
+        var r = document.createRange();
+        r.setStart(pos.offsetNode, pos.offset);
+        return r;
+      }
+      return null;
+    };
+
+    /* The word under the finger, as [start, end) offsets in the article
+       text — or null if the finger isn't over article text. */
+    function wordAt(x, y) {
+      var caret = caretFromPoint(x, y);
+      if (!caret) return null;
+      var node = caret.startContainer;
+      if (node.nodeType !== Node.TEXT_NODE || !root.contains(node)) return null;
+
+      var text = node.nodeValue;
+      var i = Math.min(caret.startOffset, text.length);
+      var s = i, e = i;
+      while (s > 0 && !/\s/.test(text[s - 1])) s--;
+      while (e < text.length && !/\s/.test(text[e])) e++;
+      if (s === e) return null; // finger over whitespace
+
+      var base = offsetOf(node, 0);
+      return { start: base + s, end: base + e };
+    }
+
+    function renderPending(color) {
+      var range = rangeFromOffsets(selStart, selEnd);
+      COLORS.forEach(function (c) { CSS.highlights.delete("pshl-pending-" + c); });
+      if (range) CSS.highlights.set("pshl-pending-" + color, new Highlight(range));
+    }
+
+    function clearPending() {
+      COLORS.forEach(function (c) { CSS.highlights.delete("pshl-pending-" + c); });
+    }
+
+    function cancelPress() {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+
+    document.addEventListener("touchstart", function (e) {
+      if (e.touches.length !== 1) { cancelPress(); return; }
+      if (toolbar.contains(e.target) || noteSheet.contains(e.target)) return;
+      if (!root.contains(e.target)) return;
+      // Long-pressing an existing highlight starts a new (overlapping)
+      // one; a quick tap on it still opens the edit palette via click.
+
+      var t = e.touches[0];
+      startX = lastX = t.clientX;
+      startY = lastY = t.clientY;
+      cancelPress();
+      pressTimer = setTimeout(function () {
+        pressTimer = null;
+        var word = wordAt(lastX, lastY);
+        if (!word) return; // pressed margin/figure — let it be a scroll
+        selecting = true;
+        anchorStart = selStart = word.start;
+        anchorEnd = selEnd = word.end;
+        renderPending(lastColor());
+      }, LONG_PRESS_MS);
+    }, { passive: true });
+
+    document.addEventListener("touchmove", function (e) {
+      var t = e.touches[0];
+      if (!t) return;
+      lastX = t.clientX;
+      lastY = t.clientY;
+
+      if (selecting) {
+        // Finger is extending the highlight: stop the page from scrolling
+        // out from under it...
+        e.preventDefault();
+        // ...except our own deliberate auto-scroll near the edges, which
+        // lets long highlights continue past the visible screen.
+        if (lastY > window.innerHeight - EDGE_ZONE) window.scrollBy(0, 6);
+        else if (lastY < EDGE_ZONE + 60) window.scrollBy(0, -6);
+
+        var word = wordAt(lastX, lastY);
+        if (word) {
+          // Grow from the anchor word toward the finger, either direction.
+          selStart = Math.min(anchorStart, word.start);
+          selEnd = Math.max(anchorEnd, word.end);
+          renderPending(lastColor());
+        }
+      } else if (pressTimer !== null) {
+        // Still waiting for the long press: real movement means the user
+        // is scrolling, not highlighting.
+        var moved = Math.hypot(lastX - startX, lastY - startY);
+        if (moved > MOVE_TOLERANCE) cancelPress();
+      }
+    }, { passive: false });
+
+    function endTouch(e) {
+      cancelPress();
+      if (!selecting) return;
+      // preventDefault stops the browser synthesizing a click, which
+      // would instantly close the palette we're about to show.
+      if (e.cancelable) e.preventDefault();
+      selecting = false;
+      clearPending();
+      if (selEnd > selStart) {
+        createHighlight(selStart, selEnd, lastColor(), { showEditToolbar: true });
+      }
+    }
+
+    document.addEventListener("touchend", endTouch, { passive: false });
+    document.addEventListener("touchcancel", function () {
+      cancelPress();
+      if (selecting) { selecting = false; clearPending(); }
+    }, { passive: true });
+  }
 
   /* ================= initial load ================= */
 
