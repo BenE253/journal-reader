@@ -17,6 +17,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import metadata as meta
+import zotero_sync
 from convert import convert_paper
 from database import FIGURE_DIR, PDF_DIR, get_db, init_db, SessionLocal
 from models import Figure, Highlight, Paper, Tag
@@ -435,6 +436,81 @@ def global_highlights(
             "all_tags": all_tags,
             "active_tag": tag,
         },
+    )
+
+
+# --------------------------------------------------------------------------
+# Settings & Zotero sync (Phase 3)
+# --------------------------------------------------------------------------
+
+DEFAULT_ZOTERO_LIBRARY_ID = "11048113"
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {
+            "api_key_set": bool(zotero_sync.get_setting(db, "zotero_api_key")),
+            "library_id": zotero_sync.get_setting(db, "zotero_library_id")
+                          or DEFAULT_ZOTERO_LIBRARY_ID,
+            "sync_state": zotero_sync.sync_state,
+        },
+    )
+
+
+@app.post("/settings/zotero")
+def save_zotero_settings(
+    api_key: str = Form(""),
+    library_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """Save credentials. A blank API key field keeps the stored one, so
+    the saved key never needs to be redisplayed in the form."""
+    if api_key.strip():
+        zotero_sync.set_setting(db, "zotero_api_key", api_key.strip())
+    if library_id.strip():
+        zotero_sync.set_setting(db, "zotero_library_id", library_id.strip())
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.get("/api/zotero/collections")
+def zotero_collections(db: Session = Depends(get_db)):
+    zot = zotero_sync.get_client(db)
+    if zot is None:
+        return JSONResponse({"error": "Zotero credentials are not configured."}, status_code=400)
+    try:
+        return zotero_sync.list_collections(zot)
+    except Exception as exc:  # noqa: BLE001 - bad key, network, Zotero down
+        return JSONResponse(
+            {"error": f"Couldn't reach Zotero: {exc}"}, status_code=502
+        )
+
+
+@app.post("/zotero/sync")
+def start_zotero_sync(
+    background_tasks: BackgroundTasks,
+    collections: list[str] = Form(...),
+):
+    """Kick off the pull sync for the chosen collections."""
+    if not zotero_sync.sync_state["running"]:
+        background_tasks.add_task(zotero_sync.sync_collections, collections)
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.get("/api/zotero/status")
+def zotero_status():
+    return zotero_sync.sync_state
+
+
+@app.post("/api/zotero/push-highlights")
+def push_highlights_stub():
+    """Planned v2 feature: write highlights to Zotero as a child note.
+    Stubbed so the API shape is reserved."""
+    return JSONResponse(
+        {"detail": "Pushing highlights to Zotero is not implemented yet."},
+        status_code=501,
     )
 
 

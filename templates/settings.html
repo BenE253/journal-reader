@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Settings — PaperShelf{% endblock %}
+
+{% block content %}
+<header class="app-header">
+  <a class="btn btn-quiet" href="/">← Library</a>
+  <h1>Settings</h1>
+</header>
+
+<main class="edit-page">
+  <section>
+    <h2 class="settings-heading">Zotero account</h2>
+    <p class="hint">
+      Create an API key at
+      <a href="https://www.zotero.org/settings/keys" target="_blank" rel="noopener">zotero.org/settings/keys</a>
+      (allow library read access). The key is stored only in this app's
+      database on your server.
+    </p>
+    <form method="post" action="/settings/zotero" class="edit-form">
+      <label>API key
+        <input type="password" name="api_key" autocomplete="off"
+               placeholder="{{ 'saved — leave blank to keep' if api_key_set else 'paste your API key' }}">
+      </label>
+      <label>Library ID <span class="hint">(your Zotero userID, shown on the same page)</span>
+        <input type="text" name="library_id" value="{{ library_id }}" inputmode="numeric">
+      </label>
+      <button class="btn btn-primary" type="submit">Save</button>
+    </form>
+  </section>
+
+  <section class="settings-section">
+    <h2 class="settings-heading">Sync from Zotero</h2>
+    {% if not api_key_set %}
+      <p class="hint">Save your API key above first.</p>
+    {% else %}
+      <button class="btn" id="load-collections">Load collections</button>
+      <form method="post" action="/zotero/sync" id="sync-form" hidden>
+        <div id="collection-list" class="collection-list"></div>
+        <button class="btn btn-primary" type="submit">Sync selected collections</button>
+      </form>
+      <p class="hint" id="sync-hint" hidden>
+        Each new paper is downloaded and converted one at a time — a big
+        collection takes a while. You can leave this page; progress
+        continues in the background and papers appear in the library as
+        they finish.
+      </p>
+    {% endif %}
+    <div id="sync-status" class="sync-status" {{ 'hidden' if not sync_state.running and sync_state.imported == 0 and 'finished' not in sync_state.message }}></div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var loadBtn = document.getElementById("load-collections");
+  var form = document.getElementById("sync-form");
+  var list = document.getElementById("collection-list");
+  var hint = document.getElementById("sync-hint");
+  var statusBox = document.getElementById("sync-status");
+
+  if (loadBtn) {
+    loadBtn.addEventListener("click", async function () {
+      loadBtn.disabled = true;
+      loadBtn.textContent = "Loading…";
+      try {
+        var res = await fetch("/api/zotero/collections");
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Couldn't reach Zotero");
+        list.innerHTML = "";
+        if (data.length === 0) {
+          list.innerHTML = "<p class='hint'>No collections found in this library.</p>";
+        }
+        data.forEach(function (c) {
+          var label = document.createElement("label");
+          label.className = "collection-item";
+          label.innerHTML = '<input type="checkbox" name="collections" value="' + c.key + '"> '
+            + c.name + ' <span class="hint">(' + c.count + ')</span>';
+          list.appendChild(label);
+        });
+        form.hidden = false;
+        hint.hidden = false;
+        loadBtn.hidden = true;
+      } catch (err) {
+        alert(err.message);
+        loadBtn.disabled = false;
+        loadBtn.textContent = "Load collections";
+      }
+    });
+  }
+
+  // Poll sync progress while a sync is running (and once on page load,
+  // to show the result of a sync that finished while we were away).
+  async function refreshStatus() {
+    try {
+      var res = await fetch("/api/zotero/status");
+      var s = await res.json();
+      var parts = [];
+      if (s.running) {
+        parts.push("Syncing… " + (s.current ? "current: " + s.current : ""));
+      }
+      parts.push(s.message);
+      if (s.running || s.imported || s.linked || s.failed) {
+        parts.push(s.imported + " imported · " + s.linked + " linked · "
+          + s.skipped + " skipped · " + s.failed + " failed");
+      }
+      statusBox.textContent = parts.filter(Boolean).join(" — ");
+      statusBox.hidden = false;
+      if (s.running) setTimeout(refreshStatus, 2000);
+    } catch (e) { /* server briefly unreachable */ }
+  }
+  refreshStatus();
+})();
+</script>
+{% endblock %}

@@ -6,9 +6,10 @@ phone. Upload a PDF, and PaperShelf converts it with
 phone-readable HTML — with a searchable library, reading progress, figure
 lightbox, and collapsible references.
 
-**Phase 1** (this version): upload → convert → read pipeline, library with
-search/filters, mobile reader with progress tracking and dark mode.
-Coming next: highlights (Phase 2), Zotero sync (Phase 3), PWA/offline (Phase 4).
+Current features: upload → convert → read pipeline, library with
+search/filters, mobile reader with progress tracking and dark mode
+(Phase 1); Kindle-style highlighting with notes and highlight views
+(Phase 2); Zotero pull sync (Phase 3). Coming next: PWA/offline (Phase 4).
 
 ## Setup
 
@@ -71,6 +72,26 @@ by DOI).
 Tailscale traffic is end-to-end encrypted and the app is never exposed to
 the public internet, which is why the app itself has no login screen.
 
+## Zotero sync
+
+PaperShelf can pull papers straight from your Zotero library:
+
+1. Get an API key at <https://www.zotero.org/settings/keys> — click
+   "Create new private key", allow **library read access**. The same
+   page shows your **userID** (the library ID).
+2. In PaperShelf, open **⚙ Settings**, paste the key, confirm the
+   library ID, and save. The key lives only in the app's own database.
+3. Tap **Load collections**, tick the collections you want, and start
+   the sync. Each item with a stored PDF is downloaded, imported with
+   Zotero's metadata (no Crossref lookup needed), and converted —
+   one at a time, since Marker is memory-hungry.
+
+Re-running a sync is safe: items already imported are skipped
+(matched by Zotero key), and a paper you'd previously uploaded by hand
+gets *linked* to its Zotero record (matched by DOI) instead of
+duplicated. Items whose PDF is a "linked file" on another computer's
+disk can't be downloaded through Zotero's API and are skipped.
+
 ## How it works
 
 | File | Role |
@@ -80,6 +101,7 @@ the public internet, which is why the app itself has no login screen.
 | `database.py` | SQLite engine/session setup, table creation |
 | `convert.py` | Marker pipeline: PDF → Markdown → HTML, figure + caption extraction |
 | `metadata.py` | DOI regex extraction + Crossref lookup |
+| `zotero_sync.py` | Zotero pull sync: collections, PDF download, dedupe |
 | `seed.py` | Bulk-import PDFs from `seed/` |
 | `templates/`, `static/` | Jinja2 templates, CSS, vanilla JS |
 

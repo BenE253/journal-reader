@@ -73,12 +73,22 @@ a { color: var(--accent); }
 .app-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 14px 16px;
   padding-top: calc(14px + env(safe-area-inset-top));
 }
 
-.app-header h1 { font-size: 1.3rem; margin: 0; flex: 1; }
+/* min-width: 0 lets the title shrink (with an ellipsis) instead of
+   pushing the header buttons off the edge on narrow screens. */
+.app-header h1 {
+  font-size: 1.3rem;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .btn {
   display: inline-block;
@@ -235,6 +245,33 @@ a { color: var(--accent); }
 }
 
 .danger-zone { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 16px; }
+
+/* ---------- Settings ---------- */
+
+.settings-heading { font-size: 1.05rem; margin: 0 0 8px; }
+
+.settings-section { margin-top: 32px; border-top: 1px solid var(--border); padding-top: 20px; }
+
+.collection-list { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
+
+.collection-item {
+  display: block;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.95rem;
+}
+
+.sync-status {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
 
 /* ---------- Reader ---------- */
 
