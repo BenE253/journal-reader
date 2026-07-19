@@ -6,26 +6,28 @@
        article, which also suppresses iOS's Copy/Look Up menu (that menu
        cannot be hidden while native selection is active, and it overlaps
        any toolbar we draw). Instead: long-press a word to start a
-       highlight, drag to extend it in either direction (the pending
-       range is drawn live via the CSS Custom Highlight API, and the page
-       auto-scrolls near the screen edges), then lift your finger — the
-       highlight is saved in your last-used color and a small palette
-       appears for recolor / note / delete.
+       highlight, drag to extend it in either direction — the pending
+       range is drawn live with the same <mark> elements a finished
+       highlight uses, and the page auto-scrolls near the screen edges —
+       then lift your finger. The highlight is saved in your last-used
+       color and a small palette appears for recolor / note / delete.
+       The palette closes on ✕, on any tap outside it, or on scroll.
 
    MOUSE (desktop) — Normal text selection; a floating toolbar with the
        four color dots and a note button appears near the selection.
        Desktop has no system callout, so nothing overlaps.
-
-   Fallback: a touch device too old for the Custom Highlight API keeps
-   native selection, but the toolbar docks at the bottom of the screen
-   where the iOS menu can't cover it.
 
    Storage/anchoring model (both modes): a highlight is the selected text
    plus ~50 characters of context on each side. On load, each highlight
    is re-found by searching for prefix+text+suffix (falling back to the
    bare text if unique) and wrapped in <mark data-hl-id> elements — one
    per covered text piece, so highlights can span paragraphs. Tapping a
-   mark reopens the palette in edit mode. */
+   mark reopens the palette in edit mode.
+
+   iOS quirk that shapes this code: taps don't reliably produce
+   synthesized `click` events mid-gesture (especially after preventDefault
+   elsewhere), so every palette button also acts on `touchend` directly,
+   and palette dismissal listens to `touchstart`, not just `click`. */
 
 (function () {
   "use strict";
@@ -39,12 +41,10 @@
   var COLORS = ["yellow", "green", "blue", "pink"];
   var CONTEXT_CHARS = 50;
   var COLOR_KEY = "papershelf-hl-color";
+  var PENDING_ID = "pending"; // data-hl-id of the in-progress preview marks
 
   // "Coarse pointer" ≈ finger-first device (phone/tablet).
-  var touchMode = window.matchMedia("(pointer: coarse)").matches;
-  var supportsCustomHighlight =
-    typeof window.Highlight === "function" && typeof CSS !== "undefined" && !!CSS.highlights;
-  var kindleMode = touchMode && supportsCustomHighlight;
+  var kindleMode = window.matchMedia("(pointer: coarse)").matches;
 
   function lastColor() {
     var c = localStorage.getItem(COLOR_KEY);
@@ -187,21 +187,30 @@
     })
       .then(function (res) { return res.json(); })
       .then(function (hl) {
-        wrapRange(start, end, hl.id, hl.color, false);
+        if (options.retagPending) {
+          // The preview marks are already exactly right — just give them
+          // their real identity. No unwrap/rewrap, no flicker.
+          marksFor(PENDING_ID).forEach(function (m) { m.dataset.hlId = hl.id; });
+        } else {
+          wrapRange(start, end, hl.id, hl.color, false);
+        }
         if (options.openNote) {
           openNoteSheet(hl.id, "");
         } else if (options.showEditToolbar) {
-          // Kindle flow: highlight is already applied; offer the palette
-          // so a different color / note / undo is one tap away.
+          // Kindle flow: highlight is applied; offer the palette so a
+          // different color / note / undo is one tap away.
           mode = { kind: "edit", id: String(hl.id) };
           var rect = rangeFromOffsets(start, end).getBoundingClientRect();
           showToolbar(rect);
         }
       })
-      .catch(function () { alert("Couldn't save highlight — is the server reachable?"); });
+      .catch(function () {
+        if (options.retagPending) unwrap(PENDING_ID);
+        alert("Couldn't save highlight — is the server reachable?");
+      });
   }
 
-  /* ================= floating toolbar ================= */
+  /* ================= floating toolbar (palette) ================= */
 
   var toolbar = document.createElement("div");
   toolbar.className = "hl-toolbar";
@@ -211,13 +220,25 @@
   // Mode: {kind: "create", range} (desktop selection) or {kind: "edit", id}
   var mode = null;
 
+  /* iOS does not reliably synthesize `click` for taps in these gesture
+     sequences, so buttons act on touchend directly; preventDefault there
+     stops a duplicate click from firing on devices that do both. */
+  function onActivate(btn, fn) {
+    btn.addEventListener("click", function (e) { e.stopPropagation(); fn(); });
+    btn.addEventListener("touchend", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      fn();
+    });
+  }
+
   function buildToolbar() {
     toolbar.innerHTML = "";
     COLORS.forEach(function (color) {
       var dot = document.createElement("button");
       dot.className = "hl-dot hl-dot-" + color;
       dot.setAttribute("aria-label", color + " highlight");
-      dot.addEventListener("click", function () { pickColor(color); });
+      onActivate(dot, function () { pickColor(color); });
       toolbar.appendChild(dot);
     });
 
@@ -225,7 +246,7 @@
     noteBtn.className = "hl-tool";
     noteBtn.textContent = "✎";
     noteBtn.setAttribute("aria-label", "Add note");
-    noteBtn.addEventListener("click", openNoteForCurrent);
+    onActivate(noteBtn, openNoteForCurrent);
     toolbar.appendChild(noteBtn);
 
     if (mode && mode.kind === "edit") {
@@ -233,15 +254,24 @@
       delBtn.className = "hl-tool hl-tool-danger";
       delBtn.textContent = "🗑";
       delBtn.setAttribute("aria-label", "Delete highlight");
-      delBtn.addEventListener("click", deleteCurrent);
+      onActivate(delBtn, deleteCurrent);
       toolbar.appendChild(delBtn);
+
+      var closeBtn = document.createElement("button");
+      closeBtn.className = "hl-tool";
+      closeBtn.textContent = "✕";
+      closeBtn.setAttribute("aria-label", "Close");
+      onActivate(closeBtn, hideToolbar);
+      toolbar.appendChild(closeBtn);
     }
   }
 
+  var toolbarShownAt = 0; // guards against instant dismissal-by-scroll
+
   function showToolbar(rect) {
     buildToolbar();
-    toolbar.classList.remove("hl-toolbar-bottom");
     toolbar.hidden = false;
+    toolbarShownAt = Date.now();
     // Position above the target, or below it when too near the top.
     var width = toolbar.offsetWidth;
     var left = rect.left + rect.width / 2 - width / 2;
@@ -252,23 +282,18 @@
     toolbar.style.top = top + "px";
   }
 
-  function showToolbarBottom() {
-    // Fallback placement: docked at the bottom, clear of the iOS callout.
-    buildToolbar();
-    toolbar.classList.add("hl-toolbar-bottom");
-    toolbar.style.left = "";
-    toolbar.style.top = "";
-    toolbar.hidden = false;
-  }
-
   function hideToolbar() {
     toolbar.hidden = true;
     mode = null;
   }
 
-  // Tapping toolbar buttons must not clear a text selection first —
-  // preventing default on pointerdown keeps it alive until click runs.
-  toolbar.addEventListener("pointerdown", function (e) { e.preventDefault(); });
+  // On desktop, pressing a toolbar button must not clear the native text
+  // selection before the click lands. Only needed in create mode — in
+  // edit mode there is no selection, and preventing pointerdown would
+  // risk suppressing iOS tap handling.
+  toolbar.addEventListener("pointerdown", function (e) {
+    if (mode && mode.kind === "create") e.preventDefault();
+  });
 
   function pickColor(color) {
     if (!mode) return;
@@ -315,13 +340,30 @@
     showToolbar(mark.getBoundingClientRect());
   });
 
-  // Tapping outside the toolbar closes edit mode.
+  /* Dismissing the palette must not depend on click synthesis (see the
+     iOS note at the top), so it also reacts to raw touches and scroll. */
+
   document.addEventListener("click", function (e) {
     if (mode && mode.kind === "edit" && !toolbar.contains(e.target)
         && !(e.target.closest && e.target.closest("mark.hl"))) {
       hideToolbar();
     }
   });
+
+  document.addEventListener("touchstart", function (e) {
+    if (mode && mode.kind === "edit" && !toolbar.contains(e.target)
+        && !(e.target.closest && e.target.closest("mark.hl"))) {
+      hideToolbar();
+    }
+  }, { passive: true });
+
+  window.addEventListener("scroll", function () {
+    // The 400ms grace period keeps stray scroll events (e.g. from the
+    // drag's own auto-scroll settling) from closing a fresh palette.
+    if (mode && mode.kind === "edit" && Date.now() - toolbarShownAt > 400) {
+      hideToolbar();
+    }
+  }, { passive: true });
 
   /* ================= note sheet ================= */
 
@@ -365,12 +407,12 @@
       .catch(function () { openNoteSheet(id, ""); });
   }
 
-  noteSheet.querySelector("[data-note-cancel]").addEventListener("click", function () {
+  onActivate(noteSheet.querySelector("[data-note-cancel]"), function () {
     noteSheet.hidden = true;
     noteForId = null;
   });
 
-  noteSheet.querySelector("[data-note-save]").addEventListener("click", function () {
+  onActivate(noteSheet.querySelector("[data-note-save]"), function () {
     var id = noteForId;
     var note = noteTextarea.value;
     noteSheet.hidden = true;
@@ -384,9 +426,6 @@
   });
 
   /* ================= desktop flow: native selection ================= */
-  /* Also used as the fallback on touch devices without the Custom
-     Highlight API — there the toolbar docks at the bottom instead of
-     floating near the selection (where the iOS callout would cover it). */
 
   if (!kindleMode) {
     var selectionTimer = null;
@@ -410,11 +449,7 @@
     if (!range.toString().trim()) return;
 
     mode = { kind: "create", range: range.cloneRange() };
-    if (touchMode) {
-      showToolbarBottom();
-    } else {
-      showToolbar(range.getBoundingClientRect());
-    }
+    showToolbar(range.getBoundingClientRect());
   }
 
   function saveDesktopSelection(color, thenOpenNote) {
@@ -442,6 +477,8 @@
     var selecting = false;
     // Anchor = the word first pressed; selection always contains it.
     var anchorStart = 0, anchorEnd = 0, selStart = 0, selEnd = 0;
+    // Last offsets drawn, so the preview only redraws on word changes.
+    var drawnStart = -1, drawnEnd = -1;
 
     var caretFromPoint = function (x, y) {
       if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
@@ -474,14 +511,21 @@
       return { start: base + s, end: base + e };
     }
 
+    /* Live preview: real <mark> elements with a temporary id, redrawn
+       only when the selection actually gains/loses a word. Rendering is
+       identical to the saved highlight, so what you see while dragging
+       is exactly what you get. */
     function renderPending(color) {
-      var range = rangeFromOffsets(selStart, selEnd);
-      COLORS.forEach(function (c) { CSS.highlights.delete("pshl-pending-" + c); });
-      if (range) CSS.highlights.set("pshl-pending-" + color, new Highlight(range));
+      if (selStart === drawnStart && selEnd === drawnEnd) return;
+      unwrap(PENDING_ID);
+      wrapRange(selStart, selEnd, PENDING_ID, color, false);
+      drawnStart = selStart;
+      drawnEnd = selEnd;
     }
 
     function clearPending() {
-      COLORS.forEach(function (c) { CSS.highlights.delete("pshl-pending-" + c); });
+      unwrap(PENDING_ID);
+      drawnStart = drawnEnd = -1;
     }
 
     function cancelPress() {
@@ -541,20 +585,35 @@
       }
     }, { passive: false });
 
-    function endTouch(e) {
+    document.addEventListener("touchend", function (e) {
       cancelPress();
-      if (!selecting) return;
+      if (!selecting) {
+        // A quick, steady tap on an existing highlight opens its palette
+        // here directly — not via a synthesized click, which iOS may
+        // swallow (the same quirk that motivated onActivate above).
+        var mark = e.target.closest && e.target.closest("mark.hl");
+        if (mark && Math.hypot(lastX - startX, lastY - startY) <= MOVE_TOLERANCE) {
+          if (e.cancelable) e.preventDefault(); // no follow-up click double-toggle
+          mode = { kind: "edit", id: mark.dataset.hlId };
+          showToolbar(mark.getBoundingClientRect());
+        }
+        return;
+      }
       // preventDefault stops the browser synthesizing a click, which
-      // would instantly close the palette we're about to show.
+      // would interact with the palette we're about to show.
       if (e.cancelable) e.preventDefault();
       selecting = false;
-      clearPending();
+      // Reset the redraw tracker but KEEP the preview marks on screen:
+      // createHighlight re-tags them with the real id once saved.
+      drawnStart = drawnEnd = -1;
       if (selEnd > selStart) {
-        createHighlight(selStart, selEnd, lastColor(), { showEditToolbar: true });
+        createHighlight(selStart, selEnd, lastColor(), {
+          retagPending: true,
+          showEditToolbar: true
+        });
       }
-    }
+    }, { passive: false });
 
-    document.addEventListener("touchend", endTouch, { passive: false });
     document.addEventListener("touchcancel", function () {
       cancelPress();
       if (selecting) { selecting = false; clearPending(); }
