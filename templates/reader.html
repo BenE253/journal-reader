@@ -11,6 +11,8 @@
 
 {# Overflow menu: hidden until the ⋯ button is tapped #}
 <div class="menu-sheet" id="menu-sheet" hidden>
+  <button type="button" data-theme-toggle="menu"></button>
+  <a href="/paper/{{ paper.id }}/highlights">Highlights ({{ paper.highlights|length }})</a>
   <a href="/paper/{{ paper.id }}/edit">Edit metadata &amp; tags</a>
   <a href="/paper/{{ paper.id }}/pdf" target="_blank">Open original PDF</a>
   <form method="post" action="/paper/{{ paper.id }}/status">
@@ -56,4 +58,5 @@
 
 {% block scripts %}
 <script src="/static/reader.js"></script>
+<script src="/static/highlights.js"></script>
 {% endblock %}

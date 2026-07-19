@@ -7,6 +7,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1f6f5c">
   <title>{% block title %}PaperShelf{% endblock %}</title>
+  {# Loaded before the stylesheet so a saved light/dark override applies
+     before first paint (avoids a theme flash on every page load). #}
+  <script src="/static/theme.js"></script>
   <link rel="stylesheet" href="/static/style.css">
   {% block head %}{% endblock %}
 </head>

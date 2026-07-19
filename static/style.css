@@ -1,7 +1,11 @@
 /* PaperShelf styles.
    Mobile-first: everything is designed for a ~390px iPhone screen, with
    max-widths so it also looks sane on a desktop browser.
-   Dark mode follows the system setting via CSS variables. */
+
+   Theming: light is the default palette. Dark applies either when the
+   device is in dark mode (media query) or when the user forces dark with
+   the in-app toggle, which sets data-theme on <html> (see theme.js).
+   Forcing light with the toggle wins over the device setting. */
 
 :root {
   --bg: #faf9f6;
@@ -17,8 +21,24 @@
   --badge-read: #6e6e73;
 }
 
+/* Dark palette, used by both selectors below.
+   NOTE: keep these two blocks identical when changing colors. */
+:root[data-theme="dark"] {
+  --bg: #121212;
+  --surface: #1e1e1e;
+  --text: #e8e8e8;
+  --text-muted: #9a9a9f;
+  --accent: #4fae94;
+  --accent-contrast: #0c1f1a;
+  --border: #2e2e2e;
+  --danger: #e46962;
+  --badge-unread: #d3b24a;
+  --badge-reading: #4fae94;
+  --badge-read: #9a9a9f;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #121212;
     --surface: #1e1e1e;
     --text: #e8e8e8;
@@ -350,6 +370,166 @@ details.references summary {
 details.references li, details.references p { font-size: 0.85em; color: var(--text-muted); }
 
 .reader-placeholder { text-align: center; padding: 80px 16px; color: var(--text-muted); }
+
+/* ---------- Highlights ---------- */
+
+/* Highlight colors as variables so dark mode can soften them: solid
+   pastels on light backgrounds, translucent washes on dark ones. */
+:root {
+  --hl-yellow: #ffe58a;
+  --hl-green: #b9e6b3;
+  --hl-blue: #b8dcf5;
+  --hl-pink: #f8c6da;
+}
+
+:root[data-theme="dark"] {
+  --hl-yellow: rgba(255, 213, 79, 0.32);
+  --hl-green: rgba(129, 199, 132, 0.32);
+  --hl-blue: rgba(100, 181, 246, 0.32);
+  --hl-pink: rgba(240, 98, 146, 0.30);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --hl-yellow: rgba(255, 213, 79, 0.32);
+    --hl-green: rgba(129, 199, 132, 0.32);
+    --hl-blue: rgba(100, 181, 246, 0.32);
+    --hl-pink: rgba(240, 98, 146, 0.30);
+  }
+}
+
+/* Kindle-style touch highlighting: native selection (and with it the
+   iOS Copy/Look Up callout) is disabled in the article; long-press +
+   drag replaces it. Applied by highlights.js only on touch devices. */
+.no-native-select {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+mark.hl { color: inherit; padding: 0.05em 0; border-radius: 2px; cursor: pointer; }
+mark.hl-yellow { background: var(--hl-yellow); }
+mark.hl-green  { background: var(--hl-green); }
+mark.hl-blue   { background: var(--hl-blue); }
+mark.hl-pink   { background: var(--hl-pink); }
+mark.hl-noted  { border-bottom: 2px dotted var(--text-muted); }
+
+/* Floating toolbar shown over a selection or a tapped highlight.
+   NOTE: `display: flex` overrides the browser's default styling for the
+   `hidden` attribute, so hiding must be restated explicitly — without
+   the [hidden] rule below, the palette could never be dismissed. */
+.hl-toolbar[hidden] { display: none; }
+
+.hl-toolbar {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+}
+
+.hl-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  padding: 0;
+}
+
+.hl-dot-yellow { background: #ffd54f; }
+.hl-dot-green  { background: #81c784; }
+.hl-dot-blue   { background: #64b5f6; }
+.hl-dot-pink   { background: #f06292; }
+
+.hl-tool {
+  border: none;
+  background: none;
+  font-size: 1.15rem;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.hl-tool-danger { color: var(--danger); }
+
+/* Bottom sheet for writing/editing a note */
+.note-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 70;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18);
+}
+
+.note-sheet textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.note-sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* Highlights list pages (per-paper and global) */
+.hl-group { margin-top: 22px; }
+
+.hl-group-title { font-size: 1rem; line-height: 1.35; margin: 0 0 10px; }
+.hl-group-title a { color: var(--text); text-decoration: none; }
+.hl-group-meta { display: block; font-size: 0.8rem; font-weight: 400; color: var(--text-muted); }
+
+.hl-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+
+.hl-item-yellow { border-left-color: #ffd54f; }
+.hl-item-green  { border-left-color: #81c784; }
+.hl-item-blue   { border-left-color: #64b5f6; }
+.hl-item-pink   { border-left-color: #f06292; }
+
+.hl-text { margin: 0; font-size: 0.95rem; line-height: 1.5; }
+
+.hl-note {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.hl-item-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.hl-item-footer form { margin-left: auto; }
+
+.hl-date { font-size: 0.75rem; color: var(--text-muted); }
 
 /* ---------- Figure lightbox ---------- */
 
