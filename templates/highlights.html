@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}
+  {%- if single_paper %}Highlights — {{ single_paper.title }}{% else %}Highlights — PaperShelf{% endif -%}
+{% endblock %}
+
+{% block content %}
+<header class="app-header">
+  {% if single_paper %}
+    <a class="btn btn-quiet" href="/paper/{{ single_paper.id }}">← Paper</a>
+    <h1>Highlights</h1>
+  {% else %}
+    <a class="btn btn-quiet" href="/">← Library</a>
+    <h1>All highlights</h1>
+  {% endif %}
+</header>
+
+<main class="library">
+  {% if not single_paper and all_tags %}
+  <nav class="filter-row">
+    <a href="/highlights" class="chip {{ 'chip-active' if not active_tag }}">All</a>
+    {% for t in all_tags %}
+      <a href="/highlights?tag={{ t.name }}"
+         class="chip chip-tag {{ 'chip-active' if active_tag == t.name }}">#{{ t.name }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+
+  {% if not groups %}
+    <p class="empty-state">
+      No highlights yet. Open a paper, select some text, and pick a color.
+    </p>
+  {% endif %}
+
+  {% for group in groups %}
+  <section class="hl-group">
+    {% if not single_paper %}
+    <h2 class="hl-group-title">
+      <a href="/paper/{{ group.paper.id }}">{{ group.paper.title }}</a>
+      <span class="hl-group-meta">
+        {% if group.paper.authors %}{{ group.paper.authors }}{% endif %}
+        {% if group.paper.year %} · {{ group.paper.year }}{% endif %}
+      </span>
+    </h2>
+    {% endif %}
+
+    {% for hl in group.highlights %}
+    <article class="hl-item hl-item-{{ hl.color }}">
+      <blockquote class="hl-text">{{ hl.text }}</blockquote>
+      {% if hl.note %}<p class="hl-note">{{ hl.note }}</p>{% endif %}
+      <footer class="hl-item-footer">
+        <span class="hl-date">{{ hl.created_at.strftime("%b %-d, %Y") }}</span>
+        <a class="btn btn-small btn-quiet" href="/paper/{{ group.paper.id }}">Open paper</a>
+        <form method="post" action="/highlight/{{ hl.id }}/delete"
+              onsubmit="return confirm('Delete this highlight?');">
+          {# Send the user back to the page they were on #}
+          {% if single_paper %}
+          <input type="hidden" name="next" value="/paper/{{ single_paper.id }}/highlights">
+          {% else %}
+          <input type="hidden" name="next"
+                 value="/highlights{{ ('?tag=' ~ active_tag) if active_tag }}">
+          {% endif %}
+          <button class="btn btn-small btn-quiet" type="submit">Delete</button>
+        </form>
+      </footer>
+    </article>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</main>
+{% endblock %}

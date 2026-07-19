@@ -19,7 +19,9 @@ from sqlalchemy.orm import Session
 import metadata as meta
 from convert import convert_paper
 from database import FIGURE_DIR, PDF_DIR, get_db, init_db, SessionLocal
-from models import Figure, Paper, Tag
+from models import Figure, Highlight, Paper, Tag
+
+HIGHLIGHT_COLORS = ("yellow", "green", "blue", "pink")
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -266,6 +268,174 @@ def set_status(paper_id: int, status: str = Form(...), db: Session = Depends(get
         paper.status = status
         db.commit()
     return RedirectResponse(url=f"/paper/{paper_id}", status_code=303)
+
+
+# --------------------------------------------------------------------------
+# Highlights (Phase 2)
+# --------------------------------------------------------------------------
+# JSON API used by highlights.js in the reader, plus two HTML views:
+# per-paper (/paper/{id}/highlights) and global (/highlights?tag=...).
+
+
+class HighlightCreate(BaseModel):
+    """Sent by the reader when the user highlights a selection.
+
+    prefix/suffix are ~50 chars of surrounding context captured at creation
+    time, used to re-find ("anchor") the highlight on future page loads.
+    """
+
+    text: str
+    prefix: str = ""
+    suffix: str = ""
+    color: str = "yellow"
+    note: str | None = None
+
+
+class HighlightUpdate(BaseModel):
+    """Partial update: only the fields present are changed."""
+
+    color: str | None = None
+    note: str | None = None
+
+
+def _highlight_json(hl: Highlight) -> dict:
+    """Shape a Highlight row for the reader's JavaScript."""
+    return {
+        "id": hl.id,
+        "text": hl.text,
+        "prefix": hl.prefix or "",
+        "suffix": hl.suffix or "",
+        "color": hl.color,
+        "note": hl.note,
+    }
+
+
+@app.get("/api/paper/{paper_id}/highlights")
+def list_highlights(paper_id: int, db: Session = Depends(get_db)):
+    highlights = (
+        db.query(Highlight)
+        .filter(Highlight.paper_id == paper_id)
+        .order_by(Highlight.created_at)
+        .all()
+    )
+    return [_highlight_json(hl) for hl in highlights]
+
+
+@app.post("/api/paper/{paper_id}/highlights")
+def create_highlight(
+    paper_id: int, payload: HighlightCreate, db: Session = Depends(get_db)
+):
+    paper = db.get(Paper, paper_id)
+    if paper is None:
+        return JSONResponse({"error": "paper not found"}, status_code=404)
+    if not payload.text.strip():
+        return JSONResponse({"error": "empty highlight"}, status_code=400)
+
+    hl = Highlight(
+        paper_id=paper_id,
+        text=payload.text,
+        prefix=payload.prefix[-50:],  # enforce the ~50-char context budget
+        suffix=payload.suffix[:50],
+        color=payload.color if payload.color in HIGHLIGHT_COLORS else "yellow",
+        note=payload.note,
+    )
+    db.add(hl)
+    db.commit()
+    db.refresh(hl)
+    return _highlight_json(hl)
+
+
+@app.patch("/api/highlight/{highlight_id}")
+def update_highlight(
+    highlight_id: int, payload: HighlightUpdate, db: Session = Depends(get_db)
+):
+    hl = db.get(Highlight, highlight_id)
+    if hl is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    if payload.color is not None and payload.color in HIGHLIGHT_COLORS:
+        hl.color = payload.color
+    if payload.note is not None:
+        # An empty string clears the note.
+        hl.note = payload.note.strip() or None
+    db.commit()
+    return _highlight_json(hl)
+
+
+@app.delete("/api/highlight/{highlight_id}")
+def delete_highlight_api(highlight_id: int, db: Session = Depends(get_db)):
+    hl = db.get(Highlight, highlight_id)
+    if hl is not None:
+        db.delete(hl)
+        db.commit()
+    return {"ok": True}
+
+
+@app.post("/highlight/{highlight_id}/delete")
+def delete_highlight_form(
+    highlight_id: int, next: str = Form("/highlights"), db: Session = Depends(get_db)
+):
+    """Form-post variant used by the highlights list pages (no JS needed).
+
+    `next` is where to send the user back to; only same-site paths are
+    accepted so the redirect can't point off-site.
+    """
+    hl = db.get(Highlight, highlight_id)
+    if hl is not None:
+        db.delete(hl)
+        db.commit()
+    if not next.startswith("/"):
+        next = "/highlights"
+    return RedirectResponse(url=next, status_code=303)
+
+
+@app.get("/paper/{paper_id}/highlights", response_class=HTMLResponse)
+def paper_highlights(request: Request, paper_id: int, db: Session = Depends(get_db)):
+    """All highlights for one paper."""
+    paper = db.get(Paper, paper_id)
+    if paper is None:
+        return RedirectResponse(url="/")
+    highlights = sorted(paper.highlights, key=lambda hl: hl.created_at)
+    return templates.TemplateResponse(
+        request,
+        "highlights.html",
+        {
+            "groups": [{"paper": paper, "highlights": highlights}] if highlights else [],
+            "single_paper": paper,
+            "all_tags": [],
+            "active_tag": None,
+        },
+    )
+
+
+@app.get("/highlights", response_class=HTMLResponse)
+def global_highlights(
+    request: Request, tag: str | None = None, db: Session = Depends(get_db)
+):
+    """Every highlight across the library, grouped by paper, tag-filterable."""
+    query = db.query(Highlight).join(Paper)
+    if tag:
+        query = query.join(Paper.tags).filter(Tag.name == tag.lower())
+    highlights = query.order_by(Paper.added_at.desc(), Highlight.created_at).all()
+
+    # Group by paper, preserving the newest-paper-first ordering.
+    groups: list[dict] = []
+    for hl in highlights:
+        if not groups or groups[-1]["paper"].id != hl.paper_id:
+            groups.append({"paper": hl.paper, "highlights": []})
+        groups[-1]["highlights"].append(hl)
+
+    all_tags = db.query(Tag).order_by(Tag.name).all()
+    return templates.TemplateResponse(
+        request,
+        "highlights.html",
+        {
+            "groups": groups,
+            "single_paper": None,
+            "all_tags": all_tags,
+            "active_tag": tag,
+        },
+    )
 
 
 # --------------------------------------------------------------------------
