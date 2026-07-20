@@ -580,9 +580,8 @@ mark.hl-noted  { border-bottom: 2px dotted var(--text-muted); }
 .lightbox-pan {
   position: absolute;
   inset: 0;
-  overflow: auto;               /* panning when zoomed in */
+  overflow: hidden;             /* panning is handled by JS transform, not scroll */
   display: flex;
-  -webkit-overflow-scrolling: touch;
 }
 
 .lightbox-pan img {
@@ -590,7 +589,8 @@ mark.hl-noted  { border-bottom: 2px dotted var(--text-muted); }
   max-width: 100%;
   max-height: 100%;
   transform-origin: center center;
-  touch-action: none;           /* we handle pinch gestures ourselves */
+  touch-action: none;           /* we handle pinch + pan gestures ourselves */
+  will-change: transform;
 }
 
 .lightbox-close {
