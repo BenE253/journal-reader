@@ -10,7 +10,10 @@ jinja2>=3.1
 python-multipart>=0.0.9
 
 # PDF -> Markdown/HTML conversion (heavy: pulls in PyTorch and ML models)
-marker-pdf>=1.2
+# Pinned to the 1.x line: Marker 2.0 rewired conversion to require a local
+# llama.cpp LLM server for some documents ("llama-server binary not found"),
+# which this app neither ships nor needs. 1.x does plain CPU conversion.
+marker-pdf>=1.2,<2
 
 # Markdown -> HTML rendering of Marker's output
 markdown>=3.6
